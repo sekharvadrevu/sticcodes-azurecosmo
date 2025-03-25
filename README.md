@@ -1,0 +1,1 @@
+# sticcodes-azurecosmo
