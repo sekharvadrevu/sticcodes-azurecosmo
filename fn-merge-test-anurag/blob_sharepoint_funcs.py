@@ -1,7 +1,4 @@
-import json
-import requests
 import logging
-from typing import List
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
 from dotenv import load_dotenv
