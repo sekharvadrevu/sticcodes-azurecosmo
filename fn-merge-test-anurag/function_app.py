@@ -1,7 +1,7 @@
 import azure.functions as func
 import logging
-from blob_sharepoint_funcs import upload
-from access_token import get_access_token
+from blob_sharepoint_funcs import get_list_data
+#from access_token import get_access_token
 from dotenv import load_dotenv
 import os
 load_dotenv(dotenv_path = "config.env")
@@ -42,10 +42,12 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
     try:
         # Call the upload function with the provided container_name and list_name.
         # Assume 'upload' returns a string (e.g., JSON data) that we want to return in the response.
-        ACCESS_TOKEN = get_access_token()
-        result = upload(ACCESS_TOKEN,container_name, list_name)
+        #ACCESS_TOKEN = get_access_token()
+        result = get_list_data(container_name, list_name)
         if result == "List name is invalid or out of proccessing scope":
             return func.HttpResponse(result,status_code=400)
+        if result == "Data not present":
+            return func.HttpResponse(result,status_code=500)
         else:   
             return func.HttpResponse(result, status_code=200,mimetype="application/json")
     except Exception as e:
