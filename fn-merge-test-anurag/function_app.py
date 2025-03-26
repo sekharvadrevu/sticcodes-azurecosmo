@@ -46,9 +46,9 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
         result = upload(ACCESS_TOKEN,container_name, list_name)
         if result == "List name is invalid":
             return func.HttpResponse(result, status_code=404)
-        elif result == "list name is out of retrieval and processing scope.":
+        elif result == "list name is out of processing scope":
             return func.HttpResponse(result,status_code=403)
-        else:
+        else:   
             return func.HttpResponse(result, status_code=200,mimetype="application/json")
     except Exception as e:
         logging.error(f"Error in upload: {e}")

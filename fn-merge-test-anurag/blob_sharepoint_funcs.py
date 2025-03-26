@@ -35,7 +35,7 @@ def get_site_id(ACCESS_TOKEN):
         return site_id
     except Exception as e:
         logger.error(f"Error getting site ID: {e}")
-        raise
+        raise 
 
 def get_list_details(ACCESS_TOKEN,list_name: str):
     """
@@ -133,7 +133,7 @@ def upload(ACCESS_TOKEN,container_name:str, list1_name: str, list2_name: str = N
         output_l1 = clean_and_format_data(json.loads(l1),list1_name)
         
         if output_l1 == None:
-            return "list name is out of processing scope."
+            return "list name is out of processing scope"
          
         formatted_list1_name = list1_name.replace(" ","_") #Remove whitespace and replace with underscore
         upload_list_to_blob(output_l1,container_name,f"{formatted_list1_name}.json")
