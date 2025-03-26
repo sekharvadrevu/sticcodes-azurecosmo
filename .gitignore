@@ -136,6 +136,7 @@ __azurite_db*__.json
 .python_packages
 
 #personal changes
-.vscode/
+
 __pycache__/
 config.env
+host.json
