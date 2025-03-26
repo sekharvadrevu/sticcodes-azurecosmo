@@ -1,1 +1,1 @@
-# Function app to retrieve and clean sharepoint list data
+# sticcodes-azurecosmo
