@@ -7,14 +7,10 @@ from azure.core.exceptions import ResourceExistsError
 from dotenv import load_dotenv
 from typing import Any
 import os
-# from data_cleaning import merge_lists
-# from data_cleaning import clean_and_format_data
 import re
 load_dotenv(dotenv_path = "config.env")
 logger = logging.getLogger('mergelists_logger')
-
 CONNECTION_STRING= os.getenv("CONNECTION_STRING")
-
 
 def map_to_sharepoint_list_name(list_name:str) -> Any:
 
