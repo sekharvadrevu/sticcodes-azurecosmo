@@ -27,6 +27,19 @@ rm_columns = {
   "AuthorLookupId": int,
   "EditorLookupId": int
 }
+include_keys_rm = [
+            "id",
+            "createdDatetime",
+            "lastModifiedDateTime",
+            "ResponsePlan",
+            "ResponseOwner",
+            "RiskId",
+            "RevisedResponseDate",
+            "ResponseDate",
+            "ResponseOwnerEmail",
+            "AuthorLookupId",
+            "EditorLookupId"
+        ]
 
 rr_columns = {
   "id": int,
@@ -66,34 +79,6 @@ rr_columns = {
   "Edit": str,
   "ItemChildCount": int,
   "FolderChildCount": int
-}
-
-
-follow_up_columns = {
-    "id":int,
-    "createdDateTime": "date",
-    "lastModifiedDateTime":"date",
-    "Title":str,
-    "Level1LookupId":int,
-    "Level2":list, # a list of dictionaries where the dictionaries have lookupid and lookupvalue are present.
-    "Owner":list, # list -> dict -> LookupId,LookupValue, Email
-    "DueDate":"date",
-    "Comments":str,
-    "SourceEvent":str,
-    "Status":str,
-    "Level3LookupId":int,
-    "Archive":bool,
-    "ReasonforArchive":str,
-    "Modified":"date",
-    "Created":"date",
-    "AuthorLookupId":int,
-    "EditorLookupId":int,
-    "Attachments":bool,
-    "Edit":str,
-    "LinkTitleNoMenu":str,
-    "LinkTitle":str,
-    "ItemChildCount":int,
-    "FolderChildCount":int
 }
 
 
@@ -137,19 +122,35 @@ include_keys_rr= [
             "FolderChildCount"
         ]
     
-include_keys_rm = [
-            "id",
-            "createdDatetime",
-            "lastModifiedDateTime",
-            "ResponsePlan",
-            "ResponseOwner",
-            "RiskId",
-            "RevisedResponseDate",
-            "ResponseDate",
-            "ResponseOwnerEmail",
-            "AuthorLookupId",
-            "EditorLookupId"
-        ]
+
+
+follow_up_columns = {
+    "id":int,
+    "createdDateTime": "date",
+    "lastModifiedDateTime":"date",
+    "Title":str,
+    "Level1LookupId":int,
+    "Level2":list, # a list of dictionaries where the dictionaries have lookupid and lookupvalue are present.
+    "Owner":list, # list -> dict -> LookupId,LookupValue, Email
+    "DueDate":"date",
+    "Comments":str,
+    "SourceEvent":str,
+    "Status":str,
+    "Level3LookupId":int,
+    "Archive":bool,
+    "ReasonforArchive":str,
+    "Modified":"date",
+    "Created":"date",
+    "AuthorLookupId":int,
+    "EditorLookupId":int,
+    "Attachments":bool,
+    "Edit":str,
+    "LinkTitleNoMenu":str,
+    "LinkTitle":str,
+    "ItemChildCount":int,
+    "FolderChildCount":int
+}
+
 
 include_keys_follow_up = [
     "id",
@@ -243,7 +244,6 @@ def format_value(data, column_types):
                         parsed_date = date_parse(value)   
                         new_value = parsed_date.strftime("%Y-%m-%d %H:%M:%S")
                     except Exception as e:
-                        logger.info(f"Error: Value '{value}' for key '{key}' is not a valid date format: {e}")
                         new_value = None
                 elif expected_type == int:
                     try:
@@ -369,17 +369,17 @@ def clean_and_format_data(data, list_type)->Any:
                     cleaned_item[field_key] = item["fields"]["Owners"].replace(";","")
         cleaned_data.append(cleaned_item)
 
+    
 
     for key,value in column_schema.items():
         if key == list_type:
             allowed_columns_present = True # check if the values have to be formatted. Useful when we dont have the schema for a list.
-            key_types = rr_columns
+            key_types = value
             cleaned_value_and_column_data = format_value(cleaned_data,key_types)
             break
 
     if allowed_columns_present == False:
         return json.dumps(cleaned_data)
-    
     
     return json.dumps(cleaned_value_and_column_data)
         

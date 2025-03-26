@@ -9,6 +9,7 @@ from typing import Any
 import os
 from data_cleaning import merge_lists
 from data_cleaning import clean_and_format_data
+import re
 load_dotenv(dotenv_path = "config.env")
 logger = logging.getLogger('mergelists_logger')
 
@@ -17,6 +18,16 @@ sitepath = os.getenv("sitepath")
 CONNECTION_STRING= os.getenv("CONNECTION_STRING")
 
 
+def map_to_sharepoint_list_name(list_name:str) -> Any:
+
+    list_name = re.sub(r"\s+", "", list_name).lower()
+
+    name_mapping = {"riskregister": "Risk Register",
+                    "riskmitigations": "Risk Mitigations",
+                    "followup": "Follow up"}
+    if list_name in name_mapping:
+        return name_mapping[list_name]
+    return None
 # ------------------------------
 # Blob and SharePoint Functions
 # ------------------------------
@@ -88,58 +99,46 @@ def upload_merged_data(ACCESS_TOKEN,compatible_list,container_name):
     #list1
     l1 = get_list_details(ACCESS_TOKEN,compatible_list[0])
     item1_name = compatible_list[0].replace(" ","_")
-    l1_upload_data = upload_list_to_blob(l1,container_name,item1_name)
+    upload_list_to_blob(l1,container_name,item1_name)
     l1_downloaded_data = download_blob(container_name,item1_name)
     
     
     #list2
     l2 = get_list_details(ACCESS_TOKEN,compatible_list[1])
     item2_name = compatible_list[1].replace(" ","_")
-    l2_upload_data = upload_list_to_blob(l2,container_name,item2_name)
+    upload_list_to_blob(l2,container_name,item2_name)
     l2_downloaded_data = download_blob(container_name,item2_name)
     merged_data = merge_lists(l1_downloaded_data, l2_downloaded_data)  
-
-
-    upload_list_to_blob(json.dumps(merged_data),container_name,f"{item1_name}-{item2_name}-merged.json")
+    upload_list_to_blob(merged_data,container_name,f"{item1_name}-{item2_name}-merged.json")
 
     return merged_data
-def upload(ACCESS_TOKEN,container_name:str, list1_name: str, list2_name: str = None) -> Any: 
+def upload(ACCESS_TOKEN,container_name:str, list1_name: str) -> Any: 
     
+    # check for inconsistent cases like "Risk register/risk register" -> only handles whitespaces/tabs, does not handle special char
+    
+    list1_name = map_to_sharepoint_list_name(list1_name)
+    if list1_name == None:
+        return "List name is invalid or out of proccessing scope"
     #define what lists are compatible for merging
     compatible_lists = [
         ["Risk Register","Risk Mitigations"]
     ]
-   
-    if list2_name!=None:
-        for item in compatible_lists:
-            if list1_name and list2_name in item: # only checks if list1_name and list2_name are compatible
-                return upload_merged_data(ACCESS_TOKEN,item,container_name)
-        
-        return f"{list1_name} and {list2_name} canot be merged"
-
-    else:
-        # if only list1_name arguement is given -> check if it is compatible with any other list and merge the data. if not -> return the cleaned data
-        #for that list
-        for item in compatible_lists:
-            if list1_name in item:
-                return upload_merged_data(ACCESS_TOKEN,item,container_name)
+  
+    for item in compatible_lists:
+        if list1_name in item:
+            return upload_merged_data(ACCESS_TOKEN,item,container_name)
                 
 
-        # else continue with cleaning and uploading the single list
-        l1 = get_list_details(ACCESS_TOKEN,list1_name)
-        if l1 == None:
-            return "List name is invalid"
-        logging.info(f"{list1_name} cannot be merged with any other list. Uploading {list1_name} to blob.....")
-        output_l1 = clean_and_format_data(json.loads(l1),list1_name)
+    # else continue with cleaning and uploading the single list
+    l1 = get_list_details(ACCESS_TOKEN,list1_name)
+    logging.info(f"{list1_name} cannot be merged with any other list. Uploading {list1_name} to blob.....")
+    output_l1 = clean_and_format_data(json.loads(l1),list1_name)
         
-        if output_l1 == None:
-            return "list name is out of processing scope"
-         
-        formatted_list1_name = list1_name.replace(" ","_") #Remove whitespace and replace with underscore
-        upload_list_to_blob(output_l1,container_name,f"{formatted_list1_name}.json")
+    formatted_list1_name = list1_name.replace(" ","_") #Remove whitespace and replace with underscore
+    upload_list_to_blob(output_l1,container_name,f"{formatted_list1_name}.json")
 
         
-        return output_l1
+    return output_l1
     
 
 

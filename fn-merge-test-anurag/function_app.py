@@ -8,7 +8,7 @@ load_dotenv(dotenv_path = "config.env")
 
 
 logger = logging.getLogger('mergelists_logger')
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 file_handler = logging.FileHandler("function_app.log")
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 file_handler.setFormatter(formatter)
@@ -44,10 +44,8 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
         # Assume 'upload' returns a string (e.g., JSON data) that we want to return in the response.
         ACCESS_TOKEN = get_access_token()
         result = upload(ACCESS_TOKEN,container_name, list_name)
-        if result == "List name is invalid":
-            return func.HttpResponse(result, status_code=404)
-        elif result == "list name is out of processing scope":
-            return func.HttpResponse(result,status_code=403)
+        if result == "List name is invalid or out of proccessing scope":
+            return func.HttpResponse(result,status_code=400)
         else:   
             return func.HttpResponse(result, status_code=200,mimetype="application/json")
     except Exception as e:
