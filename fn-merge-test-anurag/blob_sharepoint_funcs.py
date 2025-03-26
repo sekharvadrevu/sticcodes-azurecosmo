@@ -20,9 +20,9 @@ def map_to_sharepoint_list_name(list_name:str) -> Any:
 
     list_name = re.sub(r"\s+", "", list_name).lower()
 
-    name_mapping = {"riskregister": "Risk Register",
-                    "riskmitigations": "Risk Mitigations",
-                    "followup": "Follow up"}
+    name_mapping = {"riskregister": "Risk_Register",
+                    "riskmitigations": "Risk_Mitigations",
+                    "followup": "Follow_up"}
     if list_name in name_mapping:
         return name_mapping[list_name]
     return None
@@ -59,22 +59,21 @@ def get_list_data(container_name:str, list1_name: str) -> Any:
         return "List name is invalid or out of proccessing scope"
     #define what lists are compatible for merging
     compatible_lists = [
-        ["Risk Register","Risk Mitigations"]
+        ["Risk_Register","Risk_Mitigations"]
     ]
   
     for item in compatible_lists:
         if list1_name in item:
         
-            item1_name = item[0].replace(" ","_")
-            item2_name = item[1].replace(" ","_")
+            item1_name = item[0]
+            item2_name = item[1]
             if blob_exists(container_name,f"cleaned_lists/{item1_name}_{item2_name}_merged.json"):
                 data = download_blob(container_name,f"cleaned_lists/{item1_name}_{item2_name}_merged.json")
                 return data
 
               
-    formatted_list1_name = list1_name.replace(" ","_")
-    if blob_exists(container_name,f"cleaned_lists/{formatted_list1_name}.json"):
-        data = download_blob(container_name,f"cleaned_lists/{formatted_list1_name}.json")
+    if blob_exists(container_name,f"cleaned_lists/{list1_name}.json"):
+        data = download_blob(container_name,f"cleaned_lists/{list1_name}.json")
         
         return data
     else:
