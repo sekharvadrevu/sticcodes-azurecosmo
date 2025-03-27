@@ -1,16 +1,21 @@
 import azure.functions as func
+import datetime
 import json
 import logging
+import os
+import msal
+import requests
 from azure.cosmos import CosmosClient
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+from azure.core.exceptions import ResourceExistsError
+from azure.storage.blob import BlobServiceClient
+from azure.functions import FunctionApp, HttpRequest, HttpResponse
+
 from httpTrigger_funcs_anurag import get_list_data
 from timertrigger_funcs_anurag import upload_sharepoint_lists
-from access_token import get_access_token
-from openai import AzureOpenAI
-from dotenv import load_dotenv
-import os
-from openai import AzureOpenAI
-
 load_dotenv()
+
 COSMOSDB_ENDPOINT = os.getenv("cosmoendpoint")
 COSMOSDB_KEY = os.getenv("COSMOS_KEY")
 COSMOS_DB_NAME = os.getenv("COSMOS_DB_NAME")
@@ -27,10 +32,246 @@ client_openai = AzureOpenAI(
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
     api_key=AZURE_OPENAI_API_KEY,
 )
+#endpoint for sharepoint vishnu
+SECONDARY_LISTS = ["Risk Mitigations"]
+
+CONTAINER_NAME = os.getenv("AZure_CONTAINER_NAME")
+
+CONNECTION_STRING = os.getenv("Azure_CONNECTION_STRING")
+CLIENT_ID = os.getenv("CLIENT_ID")
+AUTHORITY = os.getenv("AUTHORITY")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+SCOPE = [os.getenv("SCOPE")]
+SITE_HOSTNAME = os.getenv("SITE_HOSTNAME")
+SITE_PATH = os.getenv("SITE_PATH")
+
+def get_access_token():
+    """Acquires an app-only access token using MSAL."""
+    app_msal = msal.ConfidentialClientApplication(
+        CLIENT_ID, authority=AUTHORITY, client_credential=CLIENT_SECRET
+    )
+    token_response = app_msal.acquire_token_for_client(scopes=SCOPE)
+    if "access_token" in token_response:
+        logging.info("Access token acquired.")
+        return token_response["access_token"]
+    else:
+        raise Exception("Access token could not be obtained")
+
+def get_site_id(access_token):
+    """Retrieves the SharePoint site ID from Microsoft Graph."""
+    url = f"https://graph.microsoft.com/v1.0/sites/{SITE_HOSTNAME}:{SITE_PATH}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    logging.info(f"get_site_id() URL: {url}")
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    site_info = response.json()
+    if not site_info.get("id"):
+        raise Exception("Site ID not found in response.")
+    return site_info["id"]
+
+def get_list_details(listname, access_token):
+    
+    site_id = get_site_id(access_token)
+    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{listname}/items?expand=fields"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    logging.info(f"Retrieving list '{listname}' from URL: {url}")
+    response = requests.get(url, headers=headers)
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError:
+        if response.status_code == 404:
+            raise Exception(f"List '{listname}' not found. Please check the list name.")
+    data = response.json()
+    if data is None:
+        raise Exception(f"No data returned for list '{listname}'.")
+    return data
+
+def clean_data(data):
+    """Recursively cleans the data by removing unwanted values and characters."""
+    if isinstance(data, dict):
+        cleaned_dict = {}
+        for key, value in data.items():
+            cleaned_value = clean_data(value)
+            if cleaned_value is not None and cleaned_value != "":
+                cleaned_dict[key] = cleaned_value
+        return cleaned_dict
+    elif isinstance(data, list):
+        return [clean_data(item) for item in data if clean_data(item) not in (None, "")]
+    elif isinstance(data, str):
+        data = data.replace(";", "")
+        data = data.replace("#Name?", "Name")
+        return data
+    else:
+        return data
+
+def convert_numeric(data):
+    """Recursively converts numeric strings to numbers and converts 'no' to 0."""
+    if isinstance(data, dict):
+        return {k: convert_numeric(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_numeric(item) for item in data]
+    elif isinstance(data, str):
+        if data.strip().lower() == "no":
+            return 0
+        try:
+            int_val = int(data)
+            if str(int_val) == data:
+                return int_val
+        except ValueError:
+            pass
+        try:
+            float_val = float(data)
+            if "." in data or "e" in data.lower():
+                return float_val
+        except ValueError:
+            pass
+        return data
+    else:
+        return data
+
+def create_blob_container(blob_service_client, container_name):
+    """Creates an Azure Blob Storage container if it does not already exist."""
+    try:
+        blob_service_client.create_container(name=container_name)
+        logging.info(f"Container '{container_name}' created successfully.")
+    except ResourceExistsError:
+        logging.info(f"Container '{container_name}' already exists.")
+
+def remove_unwanted_fields(data, unwanted_keys=["@odata.context", "@odata.etag", "eTag", "webUrl", "fields@odata.context"]):
+    """Recursively removes unwanted keys from the JSON data."""
+    if isinstance(data, dict):
+        return {k: remove_unwanted_fields(v, unwanted_keys) for k, v in data.items() if k not in unwanted_keys}
+    elif isinstance(data, list):
+        return [remove_unwanted_fields(item, unwanted_keys) for item in data]
+    else:
+        return data
+
+def get_merged_json(merged_data):
+    """Cleans merged data and returns it as a formatted JSON string."""
+    merged_data = remove_unwanted_fields(merged_data)
+    cleaned_data = clean_data(merged_data)
+    converted_data = convert_numeric(cleaned_data)
+    return json.dumps(converted_data, indent=2)
+
+def filter_mitigation_fields(mitigation_fields):
+   
+    allowed_keys = [
+        "ResponsePlan", "RiskId", "ResponseDate",
+        "ResponseOwnerEmail", "id", "ContentType", "Modified", "Created",
+        "AuthorLookupId", "EditorLookupId", "Attachments", "ItemChildCount",
+        "FolderChildCount","ResponseOwner"
+    ]
+    return {k: mitigation_fields[k] for k in allowed_keys if k in mitigation_fields}
+
+def merge_multiple_lists(primary_data, secondary_list_names, access_token):
+   
+    reg_list = primary_data.get("value", [])
+    aggregated_sec_index = {}
+    for sec_name in secondary_list_names:
+        sec_data = get_list_details(sec_name, access_token)
+        for record in sec_data.get("value", []):
+            fields = record.get("fields", {})
+            risk_id = fields.get("RiskId")
+            if risk_id is not None:
+                try:
+                    risk_id_str = str(int(float(risk_id)))
+                except Exception:
+                    risk_id_str = str(risk_id)
+                aggregated_sec_index.setdefault(risk_id_str, []).append(filter_mitigation_fields(fields))
+    
+    new_list = []
+    for record in reg_list:
+        reg_id = record.get("id")
+        if "fields" in record:
+            primary_fields = record["fields"].copy()
+            primary_fields["id"] = reg_id
+        else:
+            primary_fields = {"id": reg_id}
+        # Only add "mitigations" if matching secondary records are found.
+        if reg_id and aggregated_sec_index.get(str(reg_id)):
+            primary_fields["mitigations"] = aggregated_sec_index.get(str(reg_id))
+        new_list.append(primary_fields)
+    
+    return new_list
+
+def find_matching_list_name(list_name, access_token):
+    """Retrieve all SharePoint lists and return the correctly-cased name matching the given name (ignores spaces and case)."""
+    site_id = get_site_id(access_token)
+    url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    
+    normalized_input_name = list_name.replace(" ", "").lower()
+    
+    all_lists = response.json().get("value", [])
+    for lst in all_lists:
+        normalized_list_name = lst["name"].replace(" ", "").lower()
+        if normalized_list_name == normalized_input_name:
+            return lst["name"]  
+    
+    raise Exception(f"List '{list_name}' not found.")
+
+
+def upload(container_name, list_name, upload_to_blob=True):
+    access_token = get_access_token()
+
+    correct_list_name = find_matching_list_name(list_name, access_token)
+
+    blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
+    create_blob_container(blob_service_client, container_name)
+
+    primary_data = get_list_details(correct_list_name, access_token)
+
+    if primary_data.get("value"):
+        merged_data = merge_multiple_lists(primary_data, SECONDARY_LISTS, access_token)
+    else:
+        merged_data = primary_data
+
+    merged_json = get_merged_json(merged_data)
+
+    if upload_to_blob:
+        change_list_name = correct_list_name.replace(" ", "_")
+        blob_client = blob_service_client.get_blob_client(
+            container=container_name,
+            blob=f"{change_list_name}_lists_merged.json"
+        )
+        blob_client.upload_blob(merged_json, overwrite=True)
+        logging.info(f"Uploaded data to Azure Blob Storage as {change_list_name}_lists_merged.json.")
+
+    return merged_json
+
 
 
 app = func.FunctionApp()
+#Vishnu endpoint
+@app.route(route="getting_data", methods=["GET"])
+def getting_data(req: HttpRequest) -> HttpResponse:
+    logging.info("Processing getting_data request.")
+    
+    list_name = req.params.get("list_name")
+    upload_to_blob = req.params.get("upload_to_blob", "true").lower() == "true"
+    return_response = req.params.get("return_response", "true").lower() == "true"
 
+    if not list_name:
+        return func.HttpResponse(
+            "Please pass a 'list_name' parameter in the query string or in the request body.",
+            status_code=400
+        )
+
+    try:
+        result = upload(CONTAINER_NAME, list_name, upload_to_blob=upload_to_blob)
+
+        if return_response:
+            return func.HttpResponse(result, status_code=200, mimetype="application/json")
+        else:
+            return func.HttpResponse(f"Data uploaded to container '{CONTAINER_NAME}' successfully.",status_code=200 )
+
+    except Exception as e:
+        logging.error(f"Error: {e}")
+        return func.HttpResponse(f"Error: {str(e)}", status_code=404)
+    
+#ravishekar for cosmosdbquery
 @app.route(route="cosmosdbquery", auth_level=func.AuthLevel.FUNCTION)
 def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing Azure FunctionApp for Cosmos DB")
@@ -119,7 +360,6 @@ def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
 
 
 
-
 def compare_documents(items):
     if len(items) < 2:
         return {}
@@ -128,9 +368,15 @@ def compare_documents(items):
     new_doc = items[1]
 
     modified_fields = []
+
+    # Extracting created and modified timestamps
+    created_time_old = old_doc.get("created")  
+    created_time_new = new_doc.get("created")
+    modified_time_old = old_doc.get("fields", {}).get("Modified")
+    modified_time_new = new_doc.get("fields", {}).get("Modified")
     
+    # Now compare fields in the document
     for field in old_doc:
-       
         if field.startswith("_"):
             continue
         
@@ -138,16 +384,39 @@ def compare_documents(items):
             modified_fields.append({
                 "field": field,
                 "previous_value": old_doc[field],
-                "new_value": new_doc[field]
-                
+                "new_value": new_doc[field],
+                "created_at_previous": created_time_old,
+                "created_at_new": created_time_new,
+                "modified_at_previous": modified_time_old,
+                "modified_at_new": modified_time_new
             })
+
+    # Optionally, add created and modified timestamps themselves
+    modified_fields.append({
+        "field": "created",
+        "previous_value": created_time_old,
+        "new_value": created_time_new,
+        "created_at_previous": created_time_old,
+        "created_at_new": created_time_new,
+        "modified_at_previous": modified_time_old,
+        "modified_at_new": modified_time_new
+    })
+
+    modified_fields.append({
+        "field": "modified",
+        "previous_value": modified_time_old,
+        "new_value": modified_time_new,
+        "created_at_previous": created_time_old,
+        "created_at_new": created_time_new,
+        "modified_at_previous": modified_time_old,
+        "modified_at_new": modified_time_new
+    })
 
     return modified_fields
 
-
 def generate_ai_response(modified_fields):
     try:
-        # Create a prompt that will guide the LLM to generate a clean JSON summary
+       
         prompt = f"""
         Given the following list of modified fields between two versions of a document:
 
@@ -160,6 +429,8 @@ def generate_ai_response(modified_fields):
                 "field": "<field_name>",
                 "previous_value": "<previous_value>",
                 "new_value": "<new_value>"
+                
+                
             }},
             ...
         ]
@@ -185,10 +456,6 @@ def generate_ai_response(modified_fields):
         logging.error(f"Azure OpenAI API error: {str(e)}")
         return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
     
-
-
-# Anurag's endpoint
-
 @app.route(route="get_list", auth_level=func.AuthLevel.FUNCTION)
 def upload_list(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing upload_list request.")
@@ -210,7 +477,7 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     # Define your container name (could also come from environment settings)
-    container_name = os.getenv("container_name")
+    container_name = os.getenv("AZure_container_name_anurag")
 
     try:
         # Call the upload function with the provided container_name and list_name.
@@ -237,7 +504,7 @@ def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
         logging.info('Trigger lagging behind schedule')
 
     logging.info('Trigger func executed')
-    container_name = os.getenv("container_name")
+    container_name = os.getenv("AZure_container_name_anurag")
     ACCESS_TOKEN = get_access_token()
     upload_sharepoint_lists(ACCESS_TOKEN,container_name)
 

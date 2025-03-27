@@ -13,9 +13,9 @@ import re
 load_dotenv()
 logger = logging.getLogger("tt_sharepoint_logger")
 
-hostname = os.getenv("hostname")
-sitepath = os.getenv("sitepath")
-CONNECTION_STRING= os.getenv("CONNECTION_STRING")
+hostname = os.getenv("SITE_HOSTNAME")
+sitepath = os.getenv("SITE_PATH")
+CONNECTION_STRING= os.getenv("Azure_CONNECTION_STRING")
 
 
 
