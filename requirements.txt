@@ -5,3 +5,8 @@
 azure-functions
 azure-cosmos
 python-dotenv
+logging
+dateutil
+azure-storage-blob
+azure-identity
+python-dotenv
