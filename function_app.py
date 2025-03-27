@@ -2,6 +2,9 @@ import azure.functions as func
 import json
 import logging
 from azure.cosmos import CosmosClient
+from blob_sharepoint_funcs import get_list_data
+from upload_sharepoint_data_to_blob import upload_sharepoint_lists
+from access_token import get_access_token
 from dotenv import load_dotenv
 import os
 
@@ -88,3 +91,60 @@ def cosmos_function_seesion(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as e:
         logging.error(f"Cosmos DB error: {str(e)}")
         return func.HttpResponse(f"Cosmos DB error: {str(e)}", status_code=500)
+    
+
+
+# Anurag's endpoint
+
+@app.route(route="get_list", auth_level=func.AuthLevel.FUNCTION)
+def upload_list(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Processing upload_list request.")
+
+    # Try to get the "list_name" parameter from the query string or the request body.
+    list_name = req.params.get("list_name")
+    if not list_name:
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            pass
+        else:
+            list_name = req_body.get("list_name")
+
+    if not list_name:
+        return func.HttpResponse(
+            "Pass list name in parameter or body.",
+            status_code=400
+        )
+
+    # Define your container name (could also come from environment settings)
+    container_name = os.getenv("container_name")
+
+    try:
+        # Call the upload function with the provided container_name and list_name.
+        # Assume 'upload' returns a string (e.g., JSON data) that we want to return in the response.
+        #ACCESS_TOKEN = get_access_token()
+        result = get_list_data(container_name, list_name)
+        if result == "List name is invalid or out of proccessing scope":
+            return func.HttpResponse(result,status_code=400)
+        if result == "Data not present":
+            return func.HttpResponse(result,status_code=500)
+        else:   
+            return func.HttpResponse(result, status_code=200,mimetype="application/json")
+    except Exception as e:
+        logging.error(f"Error in upload: {e}")
+        return func.HttpResponse(
+            f"Error during upload: {e}",
+            status_code=500
+        )
+
+@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False,
+              use_monitor=False) 
+def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
+    if myTimer.past_due:
+        logging.info('Trigger lagging behind schedule')
+
+    logging.info('Trigger func executed')
+    container_name = os.getenv("container_name")
+    ACCESS_TOKEN = get_access_token()
+    upload_sharepoint_lists(ACCESS_TOKEN,container_name)
+
