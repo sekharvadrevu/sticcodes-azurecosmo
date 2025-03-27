@@ -5,6 +5,7 @@ from azure.cosmos import CosmosClient
 from httpTrigger_funcs_anurag import get_list_data
 from timertrigger_funcs_anurag import upload_sharepoint_lists
 from access_token import get_access_token
+from openai import AzureOpenAI
 from dotenv import load_dotenv
 import os
 
@@ -20,10 +21,12 @@ container = database.get_container_client(COSMOS_CONTAINER_NAME)
 
 app = func.FunctionApp()
 
-@app.route(route="cosomodb", auth_level=func.AuthLevel.FUNCTION)
-def cosmos_function_seesion(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="cosmosdbquery", auth_level=func.AuthLevel.FUNCTION)
+def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing Azure FunctionApp for Cosmos DB")
+
     try:
+       
         body = req.get_json()
         doc_id = body.get("ID")
         version_category = body.get("VersionCategory")
@@ -31,9 +34,8 @@ def cosmos_function_seesion(req: func.HttpRequest) -> func.HttpResponse:
         enddate = body.get("enddate")
 
         if not version_category:
-            return func.HttpResponse("Missing 'VersionCategory' parameter", status_code=400)
-       
-       
+            return func.HttpResponse("Missing 'VersionCategory' parameter", status_code=404)
+        
         if doc_id and version_category:
             query = "SELECT * FROM c WHERE c.fields.ID = @id AND c.VersionCategory = @VersionCategory"
             parameters = [
@@ -73,25 +75,155 @@ def cosmos_function_seesion(req: func.HttpRequest) -> func.HttpResponse:
             ])
 
         else:
-            return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=400)
+            return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=404)
 
         
+     
+    
+
+    
         log_message = {
             "query": query,
             "parameters": parameters
         }
         logging.info(f"Executing Query: {json.dumps(log_message, indent=2)}")
+
+        
         items = list(container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True))
 
         if not items:
             return func.HttpResponse(f"No details found for provided parameters.", status_code=404)
+        
 
-        return func.HttpResponse(json.dumps(items, indent=2), mimetype="application/json", status_code=200)
+        modified_fields = compare_documents(items)
+        if modified_fields:
+            gpt_response = generate_ai_response(modified_fields)
+            return func.HttpResponse(gpt_response, mimetype="application/json", status_code=200)
+        else:
+            return func.HttpResponse("No fields have been modified.", status_code=200)
 
     except Exception as e:
         logging.error(f"Cosmos DB error: {str(e)}")
         return func.HttpResponse(f"Cosmos DB error: {str(e)}", status_code=500)
+
+
+def compare_documents(items):
+    if len(items) < 2:
+        return {}
+
+    old_doc = items[0]
+    new_doc = items[1]
+
+    modified_fields = []
     
+    for field in old_doc:
+       
+        if "_" in field:
+            continue
+        
+        if field in new_doc and old_doc[field] != new_doc[field]:
+            modified_fields.append({
+                "field": field,
+                "previous_value": old_doc[field],
+                "new_value": new_doc[field]
+            })
+
+    return modified_fields
+
+
+def generate_ai_response(modified_fields):
+   
+    structured_response = {
+        "modified_fields": modified_fields
+    }
+
+    try:
+       
+        summary_text = json.dumps(modified_fields, indent=4)
+
+
+        prompt = f"Here is a list of modified fields between two versions of a document:\n{summary_text}\n\n" \
+                 "Please provide a summary of these changes with the field name, previous value, and new value in a clean JSON format."
+
+        response = client_openai.chat.completions.create(
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            model="gpt-4o",
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        
+        response_update = response.choices[0].message.content
+        structured_response["summary"] = response_update
+
+        return json.dumps(structured_response, indent=2)
+
+    except Exception as e:
+        logging.error(f"Azure OpenAI API error: {str(e)}")
+        return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
+
+
+
+def compare_documents(items):
+    if len(items) < 2:
+        return {}
+
+    old_doc = items[0]
+    new_doc = items[1]
+
+    modified_fields = []
+    
+    for field in old_doc:
+       
+        if "_" in field:
+            continue
+        
+        if field in new_doc and old_doc[field] != new_doc[field]:
+            modified_fields.append({
+                "field": field,
+                "previous_value": old_doc[field],
+                "new_value": new_doc[field]
+            })
+
+    return modified_fields
+
+
+def generate_ai_response(modified_fields):
+   
+    structured_response = {
+        "modified_fields": modified_fields
+    }
+
+    try:
+       
+        summary_text = json.dumps(modified_fields, indent=4)
+
+
+        prompt = f"Here is a list of modified fields between two versions of a document:\n{summary_text}\n\n" \
+                 "Please provide a summary of these changes with the field name, previous value, and new value in a clean JSON format."
+
+        response = client_openai.chat.completions.create(
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }],
+            model="gpt-4o",
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        
+        response_update = response.choices[0].message.content
+        structured_response["summary"] = response_update
+
+        return json.dumps(structured_response, indent=2)
+
+    except Exception as e:
+        logging.error(f"Azure OpenAI API error: {str(e)}")
+        return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
 
 
 # Anurag's endpoint
