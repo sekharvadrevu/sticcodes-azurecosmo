@@ -6,11 +6,11 @@ from typing import List
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
 from dotenv import load_dotenv
-from data_cleaning import merge_lists,clean_and_format_data
+from data_cleaning_anurag import merge_lists,clean_and_format_data
 from typing import Any
 import os
 import re
-load_dotenv(dotenv_path = "config.env")
+load_dotenv()
 logger = logging.getLogger("tt_sharepoint_logger")
 
 hostname = os.getenv("hostname")
@@ -148,15 +148,13 @@ def upload_sharepoint_lists(ACCESS_TOKEN,container_name):
     container_name -> name of your blob container
     """
 
-    # blob_service_client = get_blob_service_client(CONNECTION_STRING)
-    # create_blob_container(blob_service_client,container_name)
+   
     
     lists_to_be_uploaded = ["Risk Register", "Risk Mitigations", "Follow up"]
 
     # get data from sharepoint
     for list_name in lists_to_be_uploaded:
-        #list_data = get_list_details(ACCESS_TOKEN,list_name)
-        #list_name = list_name.replace(" ","_")
+        
         upload(ACCESS_TOKEN,container_name,list_name)
 
     return

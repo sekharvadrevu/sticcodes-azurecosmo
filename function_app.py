@@ -8,16 +8,26 @@ from access_token import get_access_token
 from openai import AzureOpenAI
 from dotenv import load_dotenv
 import os
+from openai import AzureOpenAI
 
 load_dotenv()
 COSMOSDB_ENDPOINT = os.getenv("cosmoendpoint")
 COSMOSDB_KEY = os.getenv("COSMOS_KEY")
 COSMOS_DB_NAME = os.getenv("COSMOS_DB_NAME")
 COSMOS_CONTAINER_NAME = os.getenv("COSMOS_CONTAINER_NAME")
-
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")  # Azure OpenAI endpoint
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY") 
+Azure_OPENAI_VERSION=os.getenv("Azure_openaiVersion")
+Azure_DEPLOYMENT_NAME=os.getenv("Azure_DEPLOYMENT_NAME")
 client = CosmosClient(COSMOSDB_ENDPOINT, COSMOSDB_KEY)
 database = client.get_database_client(COSMOS_DB_NAME)
 container = database.get_container_client(COSMOS_CONTAINER_NAME)
+client_openai = AzureOpenAI(
+    api_version=Azure_OPENAI_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    api_key=AZURE_OPENAI_API_KEY,
+)
+
 
 app = func.FunctionApp()
 
@@ -107,63 +117,6 @@ def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(f"Cosmos DB error: {str(e)}", status_code=500)
 
 
-def compare_documents(items):
-    if len(items) < 2:
-        return {}
-
-    old_doc = items[0]
-    new_doc = items[1]
-
-    modified_fields = []
-    
-    for field in old_doc:
-       
-        if "_" in field:
-            continue
-        
-        if field in new_doc and old_doc[field] != new_doc[field]:
-            modified_fields.append({
-                "field": field,
-                "previous_value": old_doc[field],
-                "new_value": new_doc[field]
-            })
-
-    return modified_fields
-
-
-def generate_ai_response(modified_fields):
-   
-    structured_response = {
-        "modified_fields": modified_fields
-    }
-
-    try:
-       
-        summary_text = json.dumps(modified_fields, indent=4)
-
-
-        prompt = f"Here is a list of modified fields between two versions of a document:\n{summary_text}\n\n" \
-                 "Please provide a summary of these changes with the field name, previous value, and new value in a clean JSON format."
-
-        response = client_openai.chat.completions.create(
-            messages=[{
-                "role": "user",
-                "content": prompt
-            }],
-            model="gpt-4o",
-            max_tokens=500,
-            temperature=0.7
-        )
-
-        
-        response_update = response.choices[0].message.content
-        structured_response["summary"] = response_update
-
-        return json.dumps(structured_response, indent=2)
-
-    except Exception as e:
-        logging.error(f"Azure OpenAI API error: {str(e)}")
-        return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
 
 
 
@@ -178,7 +131,7 @@ def compare_documents(items):
     
     for field in old_doc:
        
-        if "_" in field:
+        if field.startswith("_"):
             continue
         
         if field in new_doc and old_doc[field] != new_doc[field]:
@@ -186,44 +139,52 @@ def compare_documents(items):
                 "field": field,
                 "previous_value": old_doc[field],
                 "new_value": new_doc[field]
+                
             })
 
     return modified_fields
 
 
 def generate_ai_response(modified_fields):
-   
-    structured_response = {
-        "modified_fields": modified_fields
-    }
-
     try:
-       
-        summary_text = json.dumps(modified_fields, indent=4)
+        # Create a prompt that will guide the LLM to generate a clean JSON summary
+        prompt = f"""
+        Given the following list of modified fields between two versions of a document:
 
+        {json.dumps(modified_fields, indent=4)}
 
-        prompt = f"Here is a list of modified fields between two versions of a document:\n{summary_text}\n\n" \
-                 "Please provide a summary of these changes with the field name, previous value, and new value in a clean JSON format."
+        Please generate a clean JSON response summarizing the changes, showing each modified field with the previous and new values in the format:
 
+        [
+            {{
+                "field": "<field_name>",
+                "previous_value": "<previous_value>",
+                "new_value": "<new_value>"
+            }},
+            ...
+        ]
+        The response should only contain the JSON and no additional text.
+        """
+
+        
         response = client_openai.chat.completions.create(
             messages=[{
                 "role": "user",
                 "content": prompt
             }],
-            model="gpt-4o",
+            model="gpt-4o",  
             max_tokens=500,
             temperature=0.7
         )
 
         
-        response_update = response.choices[0].message.content
-        structured_response["summary"] = response_update
-
-        return json.dumps(structured_response, indent=2)
+        response_update = response.choices[0].message.content.strip()
+        return response_update
 
     except Exception as e:
         logging.error(f"Azure OpenAI API error: {str(e)}")
         return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
+    
 
 
 # Anurag's endpoint

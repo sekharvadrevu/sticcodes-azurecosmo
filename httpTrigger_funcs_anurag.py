@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from typing import Any
 import os
 import re
-load_dotenv(dotenv_path = "config.env")
+load_dotenv(dotenv_path = ".env")
 logger = logging.getLogger('mergelists_logger')
 CONNECTION_STRING= os.getenv("CONNECTION_STRING")
 
