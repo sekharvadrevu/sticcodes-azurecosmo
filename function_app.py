@@ -2,8 +2,8 @@ import azure.functions as func
 import json
 import logging
 from azure.cosmos import CosmosClient
-from blob_sharepoint_funcs import get_list_data
-from upload_sharepoint_data_to_blob import upload_sharepoint_lists
+from httpTrigger_funcs_anurag import get_list_data
+from timertrigger_funcs_anurag import upload_sharepoint_lists
 from access_token import get_access_token
 from dotenv import load_dotenv
 import os
