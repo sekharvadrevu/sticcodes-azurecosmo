@@ -476,8 +476,8 @@ def generate_ai_response(modified_fields):
 
 # Anurag's endpoint
 
-@app.route(route="get_list", methods = ["GET"] auth_level=func.AuthLevel.FUNCTION)
-def get_list(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="get_sharepoint_list_data_as", methods = ["GET"], auth_level=func.AuthLevel.FUNCTION)
+def get_sharepoint_list_data_as(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing upload_list request.")
 
     list_name = req.params.get("list_name")
@@ -496,13 +496,15 @@ def get_list(req: func.HttpRequest) -> func.HttpResponse:
         )
 
     # Define your container name (could also come from environment settings)
-    container_name = os.getenv("AZure_container_name")
+    container_name = os.getenv("AZure_container_name_anurag")
 
     try:
         result = get_list_data(container_name, list_name)
         if result == "List name is invalid or out of proccessing scope":
             return func.HttpResponse(result,status_code=400)
-        if result == "Data not present":
+        if result == "Unable to retrieve requested file":
+            return func.HttpResponse(result,status_code=404)
+        if result == "Failed to download file":
             return func.HttpResponse(result,status_code=500)
         else:   
             return func.HttpResponse(result, status_code=200,mimetype="application/json")
