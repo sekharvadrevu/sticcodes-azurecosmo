@@ -189,11 +189,10 @@ def generate_ai_response(modified_fields):
 
 # Anurag's endpoint
 
-@app.route(route="get_list", auth_level=func.AuthLevel.FUNCTION)
-def upload_list(req: func.HttpRequest) -> func.HttpResponse:
+@app.route(route="get_list",methods = ["GET"], auth_level=func.AuthLevel.FUNCTION)
+def get_list(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing upload_list request.")
 
-    # Try to get the "list_name" parameter from the query string or the request body.
     list_name = req.params.get("list_name")
     if not list_name:
         try:
@@ -209,13 +208,9 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
             status_code=400
         )
 
-    # Define your container name (could also come from environment settings)
     container_name = os.getenv("container_name")
 
     try:
-        # Call the upload function with the provided container_name and list_name.
-        # Assume 'upload' returns a string (e.g., JSON data) that we want to return in the response.
-        #ACCESS_TOKEN = get_access_token()
         result = get_list_data(container_name, list_name)
         if result == "List name is invalid or out of proccessing scope":
             return func.HttpResponse(result,status_code=400)
@@ -230,7 +225,7 @@ def upload_list(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500
         )
 
-@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False,
+@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=True,
               use_monitor=False) 
 def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
     if myTimer.past_due:

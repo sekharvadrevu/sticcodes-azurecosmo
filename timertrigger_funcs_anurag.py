@@ -2,14 +2,12 @@
 import json
 import requests
 import logging
-from typing import List
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
 from dotenv import load_dotenv
 from data_cleaning_anurag import merge_lists,clean_and_format_data
 from typing import Any
 import os
-import re
 load_dotenv()
 logger = logging.getLogger("tt_sharepoint_logger")
 
