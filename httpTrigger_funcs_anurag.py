@@ -30,20 +30,27 @@ def download_blob(container_name:str,blob_filename:str):
         blob_data = blob_client.download_blob().readall()
         return blob_data
     except Exception as e:
-        return e
+        logger.error(f"Failed to download {blob_filename}. Error :{e}")
+        return f"Failed to download {blob_filename}"
     
 
 def blob_exists(container_name:str,blob_filename:str):
-    blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
-    container_client = blob_service_client.get_container_client(container_name)
+    try:
 
-    
-    blob_list = container_client.list_blobs()
-    for blob in blob_list:
-        if blob_filename == blob.name:
-            return True
-    return False
-    
+        blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
+        container_client = blob_service_client.get_container_client(container_name)
+
+        blob_list = container_client.list_blobs()
+        for blob in blob_list:
+            if blob_filename == blob.name:
+                return True
+        return False
+
+    except Exception as e:
+        logger.error(f"Error in getting blob list {e}")
+        return False
+
+
 def get_list_data(container_name:str, list1_name: str) -> Any: 
     
     # check for inconsistent cases like "Risk register/risk register" -> only handles whitespaces/tabs, does not handle special char
@@ -62,15 +69,19 @@ def get_list_data(container_name:str, list1_name: str) -> Any:
             item2_name = item[1]
             if blob_exists(container_name,f"cleaned_lists/{item1_name}_{item2_name}_merged.json"):
                 data = download_blob(container_name,f"cleaned_lists/{item1_name}_{item2_name}_merged.json")
+                if data == f"Failed to download file":
+                    return data
                 return data
 
               
     if blob_exists(container_name,f"cleaned_lists/{list1_name}.json"):
+
         data = download_blob(container_name,f"cleaned_lists/{list1_name}.json")
-        
+        if data == "Failed to download file":
+            return data
         return data
     else:
-        return "Data not present"
+        return "Unable to retrieve requested file"
     
 
 
