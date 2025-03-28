@@ -187,14 +187,14 @@ def merge_multiple_lists(primary_data, secondary_list_names, access_token):
             primary_fields["id"] = reg_id
         else:
             primary_fields = {"id": reg_id}
-        # Only add "mitigations" if matching secondary records are found.
+# Only add "mitigations" if matching secondary records are found.
         if reg_id and aggregated_sec_index.get(str(reg_id)):
             primary_fields["mitigations"] = aggregated_sec_index.get(str(reg_id))
         new_list.append(primary_fields)
     
     return new_list
 
-def find_matching_list_name(list_name, access_token):
+def find_matching_list_name(sharepoint_list_name, access_token):
     """Retrieve all SharePoint lists and return the correctly-cased name matching the given name (ignores spaces and case)."""
     site_id = get_site_id(access_token)
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/lists"
@@ -202,7 +202,7 @@ def find_matching_list_name(list_name, access_token):
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     
-    normalized_input_name = list_name.replace(" ", "").lower()
+    normalized_input_name = sharepoint_list_name.replace(" ", "").lower()
     
     all_lists = response.json().get("value", [])
     for lst in all_lists:
@@ -210,13 +210,13 @@ def find_matching_list_name(list_name, access_token):
         if normalized_list_name == normalized_input_name:
             return lst["name"]  
     
-    raise Exception(f"List '{list_name}' not found.")
+    raise Exception(f"List '{sharepoint_list_name}' not found.")
 
 
-def upload(container_name, list_name, upload_to_blob=True):
+def upload(container_name, sharepoint_list_name, upload_to_blob=True):
     access_token = get_access_token()
 
-    correct_list_name = find_matching_list_name(list_name, access_token)
+    correct_list_name = find_matching_list_name(sharepoint_list_name, access_token)
 
     blob_service_client = BlobServiceClient.from_connection_string(CONNECTION_STRING)
     create_blob_container(blob_service_client, container_name)
@@ -241,26 +241,24 @@ def upload(container_name, list_name, upload_to_blob=True):
 
     return merged_json
 
-
-
 app = func.FunctionApp()
 #Vishnu endpoint
-@app.route(route="getting_data", methods=["GET"])
-def getting_data(req: HttpRequest) -> HttpResponse:
-    logging.info("Processing getting_data request.")
+@app.route(route="get_sharepoint_data", methods=["GET"])
+def get_sharepoint_data(req: HttpRequest) -> HttpResponse:
+    logging.info("Processing get_sharepoint_data request.")
     
-    list_name = req.params.get("list_name")
+    sharepoint_list_name = req.params.get("sharepoint_list_name")
     upload_to_blob = req.params.get("upload_to_blob", "true").lower() == "true"
     return_response = req.params.get("return_response", "true").lower() == "true"
 
-    if not list_name:
+    if not sharepoint_list_name:
         return func.HttpResponse(
             "Please pass a 'list_name' parameter in the query string or in the request body.",
             status_code=400
         )
 
     try:
-        result = upload(CONTAINER_NAME, list_name, upload_to_blob=upload_to_blob)
+        result = upload(CONTAINER_NAME, sharepoint_list_name, upload_to_blob=upload_to_blob)
 
         if return_response:
             return func.HttpResponse(result, status_code=200, mimetype="application/json")
@@ -327,12 +325,7 @@ def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
 
         else:
             return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=404)
-
         
-     
-    
-
-    
         log_message = {
             "query": query,
             "parameters": parameters
