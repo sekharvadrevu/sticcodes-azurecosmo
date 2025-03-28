@@ -476,7 +476,7 @@ def generate_ai_response(modified_fields):
 
 # Anurag's endpoint
 
-@app.route(route="get_list", auth_level=func.AuthLevel.FUNCTION)
+@app.route(route="get_list", methods = ["GET"] auth_level=func.AuthLevel.FUNCTION)
 def get_list(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing upload_list request.")
 
