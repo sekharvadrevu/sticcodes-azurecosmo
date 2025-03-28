@@ -3,11 +3,12 @@
 # Manually managing azure-functions-worker may cause unexpected issues
 
 azure-functions
+azure-core
 azure-cosmos
 python-dotenv
-logging
-python-dateutil
-azure-storage-blob
-azure-identity
-python-dotenv
 openai
+msal
+azure-identity
+azure-core
+azure-storage-blob
+python-dateutil

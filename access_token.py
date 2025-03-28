@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 import logging
 # Load environment variables from .env file
-load_dotenv(dotenv_path = ".env")
+load_dotenv()
 logger = logging.getLogger('tt_sharepoint_logger')
 
 

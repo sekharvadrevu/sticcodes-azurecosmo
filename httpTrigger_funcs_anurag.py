@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 from typing import Any
 import os
 import re
-load_dotenv(dotenv_path = ".env")
+load_dotenv()
 logger = logging.getLogger('mergelists_logger')
-CONNECTION_STRING= os.getenv("CONNECTION_STRING")
+CONNECTION_STRING= os.getenv("Azure_CONNECTION_STRING")
 
 def map_to_sharepoint_list_name(list_name:str) -> Any:
 
