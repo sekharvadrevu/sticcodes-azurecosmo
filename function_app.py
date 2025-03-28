@@ -270,8 +270,9 @@ def get_sharepoint_data(req: HttpRequest) -> HttpResponse:
         return func.HttpResponse(f"Error: {str(e)}", status_code=404)
     
 #ravishekar for cosmosdbquery
-@app.route(route="cosmosdbquery", auth_level=func.AuthLevel.FUNCTION)
-def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
+
+@app.route(route="cosmosdb-doc-history", auth_level=func.AuthLevel.FUNCTION)
+def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Processing Azure FunctionApp for Cosmos DB")
 
     try:
@@ -325,7 +326,12 @@ def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
 
         else:
             return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=404)
+
         
+     
+    
+
+    
         log_message = {
             "query": query,
             "parameters": parameters
@@ -350,104 +356,126 @@ def cosmos_db_response_session(req: func.HttpRequest) -> func.HttpResponse:
         logging.error(f"Cosmos DB error: {str(e)}")
         return func.HttpResponse(f"Cosmos DB error: {str(e)}", status_code=500)
 
-
-
-
 def compare_documents(items):
     if len(items) < 2:
-        return {}
+        return []
 
     old_doc = items[0]
     new_doc = items[1]
 
     modified_fields = []
 
-    # Extracting created and modified timestamps
-    created_time_old = old_doc.get("created")  
-    created_time_new = new_doc.get("created")
-    modified_time_old = old_doc.get("fields", {}).get("Modified")
-    modified_time_new = new_doc.get("fields", {}).get("Modified")
+   
+    created = new_doc.get("created") or old_doc.get("created")
+
     
-    # Now compare fields in the document
-    for field in old_doc:
-        if field.startswith("_"):
+    modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
+
+    old_modified_by = old_doc.get("modified_by", {})
+    new_modified_by = new_doc.get("modified_by", {})
+
+    modified_by = {
+        "id": new_modified_by.get("id") or old_modified_by.get("id"),
+        "display_name": new_modified_by.get("display_name") or old_modified_by.get("display_name"),
+        "email": new_modified_by.get("email") or old_modified_by.get("email"),
+    }
+
+    
+    for field in set(old_doc.keys()).union(new_doc.keys()):
+        if field.startswith("_"):  
             continue
-        
-        if field in new_doc and old_doc[field] != new_doc[field]:
-            modified_fields.append({
-                "field": field,
-                "previous_value": old_doc[field],
-                "new_value": new_doc[field],
-                "created_at_previous": created_time_old,
-                "created_at_new": created_time_new,
-                "modified_at_previous": modified_time_old,
-                "modified_at_new": modified_time_new
-            })
 
-    # Optionally, add created and modified timestamps themselves
-    modified_fields.append({
-        "field": "created",
-        "previous_value": created_time_old,
-        "new_value": created_time_new,
-        "created_at_previous": created_time_old,
-        "created_at_new": created_time_new,
-        "modified_at_previous": modified_time_old,
-        "modified_at_new": modified_time_new
-    })
+        old_value = old_doc.get(field)
+        new_value = new_doc.get(field)
 
-    modified_fields.append({
-        "field": "modified",
-        "previous_value": modified_time_old,
-        "new_value": modified_time_new,
-        "created_at_previous": created_time_old,
-        "created_at_new": created_time_new,
-        "modified_at_previous": modified_time_old,
-        "modified_at_new": modified_time_new
-    })
+        if isinstance(old_value, dict) and isinstance(new_value, dict):
+            for sub_field in set(old_value.keys()).union(new_value.keys()):
+                sub_old_value = old_value.get(sub_field)
+                sub_new_value = new_value.get(sub_field)
+
+                if sub_old_value != sub_new_value:
+                    modified_fields.append({
+                        "Field": f"{field}.{sub_field}",
+                        "Old_value": sub_old_value,
+                        "New_value": sub_new_value,
+                        "Created": created,
+                        "Modified": modified,
+                        "ModifiedBy": modified_by
+                    })
+        else:
+            if old_value != new_value:
+                modified_fields.append({
+                    "Field": field,
+                    "Old_value": old_value,
+                    "New_value": new_value,
+                    "Created": created,
+                    "Modified": modified,
+                    "ModifiedBy": modified_by
+                })
+
+    
+    if not modified_fields:
+        modified_fields.append({
+            "Field": "No changes detected",
+            "Old_value": None,
+            "New_value": None,
+            "Created": created,
+            "Modified": modified,
+            "ModifiedBy": modified_by
+        })
 
     return modified_fields
 
+
+
+
 def generate_ai_response(modified_fields):
-    try:
-       
+ try:
+        
+ 
         prompt = f"""
         Given the following list of modified fields between two versions of a document:
-
+ 
         {json.dumps(modified_fields, indent=4)}
 
-        Please generate a clean JSON response summarizing the changes, showing each modified field with the previous and new values in the format:
-
+        Generate a JSON response summarizing the changes, showing each modified field with the previous and new values, and include the Created and Modified timestamps in the following format:
+ 
         [
             {{
-                "field": "<field_name>",
-                "previous_value": "<previous_value>",
-                "new_value": "<new_value>"
-                
+                "Field": "<field_name>",
+                "Old_value": "<previous_value>",
+                "New_value": "<new_value>",
+                "Created": "<created_timestamp>",
+                "Modified" : "<modified_timestamp>",
+                "Modified_by" : <modified_by>
                 
             }},
             ...
         ]
         The response should only contain the JSON and no additional text.
         """
-
-        
+ 
         response = client_openai.chat.completions.create(
             messages=[{
                 "role": "user",
                 "content": prompt
             }],
             model="gpt-4o",  
-            max_tokens=500,
+            max_tokens=4000,
             temperature=0.7
         )
-
-        
+ 
         response_update = response.choices[0].message.content.strip()
         return response_update
-
-    except Exception as e:
+ 
+ except Exception as e:
         logging.error(f"Azure OpenAI API error: {str(e)}")
         return json.dumps({"error": f"Failed to generate AI response: {str(e)}"}, indent=2)
+
+
+
+
+
     
 @app.route(route="get_list", auth_level=func.AuthLevel.FUNCTION)
 def upload_list(req: func.HttpRequest) -> func.HttpResponse:
