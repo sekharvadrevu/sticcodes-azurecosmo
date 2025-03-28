@@ -326,12 +326,6 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
 
         else:
             return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=404)
-
-        
-     
-    
-
-    
         log_message = {
             "query": query,
             "parameters": parameters
@@ -350,7 +344,8 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
             gpt_response = generate_ai_response(modified_fields)
             return func.HttpResponse(gpt_response, mimetype="application/json", status_code=200)
         else:
-            return func.HttpResponse("No fields have been modified.", status_code=200)
+             full_documents = json.dumps(items, indent=2, default=str)  # Convert Cosmos DB results to JSON
+             return func.HttpResponse(full_documents, mimetype="application/json", status_code=200)
 
     except Exception as e:
         logging.error(f"Cosmos DB error: {str(e)}")
