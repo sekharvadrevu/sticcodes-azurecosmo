@@ -47,9 +47,7 @@ SCOPE = [os.getenv("SCOPE")]
 SITE_HOSTNAME = os.getenv("SITE_HOSTNAME")
 SITE_PATH = os.getenv("SITE_PATH")
 
-#loggers
 
-logger =  logging.getLogger("pptx_data_logger")
 
 
 def get_access_token():
@@ -524,7 +522,7 @@ def get_sharepoint_list_data_as(req: func.HttpRequest) -> func.HttpResponse:
     
 
 
-@app.route(route="get_pptx_data",methods=["GET"],auth_level = func.AuthLevel.FUNCTION)
+@app.route(route="get_pptx_json_data",methods=["GET"],auth_level = func.AuthLevel.FUNCTION)
 def get_pptx_data(req:func.HttpRequest) -> func.HttpResponse:
     file_path = req.params.get("file_path")
     if not file_path:
@@ -549,7 +547,7 @@ def get_pptx_data(req:func.HttpRequest) -> func.HttpResponse:
         else:
             return func.HttpResponse(result,status_code=200,mimetype = "application/json")
     except Exception as e : 
-        logger.error(f"{e}")
+        logging.error(f"{e}")
         return func.HttpResponse("Server error",status_code = 500)
 
 
