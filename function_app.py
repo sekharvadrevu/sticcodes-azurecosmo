@@ -14,6 +14,8 @@ from azure.functions import FunctionApp, HttpRequest, HttpResponse
 
 from httpTrigger_funcs_anurag import get_list_data
 from timertrigger_funcs_anurag import upload_sharepoint_lists
+from access_token import get_access_token
+from read_clean_upload_pptx import pptx_to_json
 load_dotenv()
 
 COSMOSDB_ENDPOINT = os.getenv("cosmoendpoint")
@@ -44,6 +46,9 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 SCOPE = [os.getenv("SCOPE")]
 SITE_HOSTNAME = os.getenv("SITE_HOSTNAME")
 SITE_PATH = os.getenv("SITE_PATH")
+
+
+
 
 def get_access_token():
     """Acquires an app-only access token using MSAL."""
@@ -509,8 +514,40 @@ def get_sharepoint_list_data_as(req: func.HttpRequest) -> func.HttpResponse:
             f"Error during upload: {e}",
             status_code=500
         )
+    
 
-@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=True,
+
+@app.route(route="get_pptx_json_data",methods=["GET"],auth_level = func.AuthLevel.FUNCTION)
+def get_pptx_data(req:func.HttpRequest) -> func.HttpResponse:
+    file_path = req.params.get("file_path")
+    if not file_path:
+        try:
+            req_body = req.get_json()
+        except ValueError:
+            pass
+        else:
+            file_path = req_body.get("file_path")
+
+    if not file_path:
+        return func.HttpResponse("Input file path as parameter or in request body",status_code= 400)
+
+    try:
+        # upload file path to function
+        ACCESS_TOKEN = get_access_token()
+        result = pptx_to_json(ACCESS_TOKEN,file_path)
+        if result ==  "Unable to get file data":
+            return func.HttpResponse(result,status_code = 500)
+        elif result == "Invalid file path":
+            return func.HttpResponse(result,status_code = 404)
+        else:
+            return func.HttpResponse(result,status_code=200,mimetype = "application/json")
+    except Exception as e : 
+        logging.error(f"{e}")
+        return func.HttpResponse("Server error",status_code = 500)
+
+
+
+@app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False,
               use_monitor=False) 
 def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
     if myTimer.past_due:

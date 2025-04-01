@@ -12,3 +12,4 @@ azure-identity
 azure-core
 azure-storage-blob
 python-dateutil
+python-pptx
