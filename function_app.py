@@ -3,6 +3,8 @@ import datetime
 import json
 import logging
 import os
+import time
+import csv
 import msal
 import requests
 from azure.cosmos import CosmosClient
@@ -582,39 +584,69 @@ def get_pptx_data_as(req:func.HttpRequest) -> func.HttpResponse:
         logging.error(f"{e}")
         return func.HttpResponse("Server error",status_code = 500)
 
-
-@app.route(route="chat_completion",methods=['POST'])
+@app.route(route="chat_completion", methods=['POST'])
 def chat_completion_http_trigger_as(req: func.HttpRequest) -> func.HttpResponse:
     """
-        Endpoint to get response from gpt-4o/o1 model.
-        Query must be passed in request body and model name must be passed as a parameter.
+    Endpoint to get response from gpt-4o/o1 model.
+    Query must be passed in request body and model name must be passed as a parameter.
+    Logs the response time, model name, user query, model response, and language to a CSV file.
     """
+    start_time = time.time()
+    
     try:
         req_body = req.get_json()
         deployment_name = req.params.get('model_name')
     except ValueError:
         return func.HttpResponse(
-             "Please pass the model name as parameter and the query in the request body.",
-             status_code=400
+            "Please pass the model name as parameter and the query in the request body.",
+            status_code=400
         )
     else:
         query = req_body.get('query')
         
-        if(query and deployment_name):
-            logging.info(deployment_name)
-            logging.info(query)
-            response = get_ai_response(query,deployment_name)
+        if query and deployment_name:
+            logging.info(f"Model Name: {deployment_name}")
+            logging.info(f"User Query: {query}")
+            
+            response = get_ai_response(query, deployment_name)
+            
+            # Calculate response time in milliseconds
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Data to log
+            log_data = [
+                response_time_ms,
+                deployment_name,
+                query,
+                json.loads(response)["model response"], # loads the response as dictionary and outputs the model response to csv
+                "python"
+            ]
+            
+            # Write to CSV file with header if file is new or empty
+            log_file_path = "log_responses.csv"
+            write_header = not os.path.exists(log_file_path) or os.stat(log_file_path).st_size == 0
+            
+            try:
+                with open(log_file_path, mode="a", newline="") as log_file:
+                    csv_writer = csv.writer(log_file)
+                    
+                    if write_header:
+                        csv_writer.writerow(["ResponseTimeMs", "Model_name", "UserQuery", "Model_response", "Language(python)"])
+                    
+                    csv_writer.writerow(log_data)
+            except Exception as e:
+                logging.error(f"Error writing to CSV log: {e}")
+            
             if response == "Invalid model name":
-                return func.HttpResponse("Please enter a valid model name.",status_code=400) # model name must be available in endpoint
+                return func.HttpResponse("Please enter a valid model name.", status_code=400)
             elif response == "Failed to get response from model":
-                return func.HttpResponse("Failed to get response. Please try again", status_code=500) # if chat completion does not give a response 
+                return func.HttpResponse("Failed to get response. Please try again", status_code=500)
             elif response == "Failed to connect to client":
-                return func.HttpResponse("Failed to connect to client.Please try again",status_code=500) # if api key or endpoint is invalid
+                return func.HttpResponse("Failed to connect to client. Please try again", status_code=500)
             else:
-                return func.HttpResponse(response,status_code=200,mimetype = "application/json")
+                return func.HttpResponse(response, status_code=200, mimetype="application/json")
         else:
-            return func.HttpResponse("Query and model name must be present",status_code=400)
-
+            return func.HttpResponse("Query and model name must be present", status_code=400)
 @app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False,
               use_monitor=False) 
 def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
