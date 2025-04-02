@@ -1,32 +1,29 @@
 import logging
 import json
+import os
 import requests
 import msal
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceExistsError
-
+from dotenv import load_dotenv
+load_dotenv()
 # Azure OpenAI API details
-AZURE_OPENAI_KEY = "22da1bef2a454675b33a333ee5e99d17"  # Replace with your Azure OpenAI API key
-AZURE_OPENAI_ENDPOINT = "https://genaidemo0399729888.cognitiveservices.azure.com/"  # Replace with your Azure OpenAI endpoint
-API_VERSION = "2023-05-15"  # The API version for Azure OpenAI
-MODEL_NAME = "text-embedding-ada-002"  # The model name
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY") 
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT") 
+API_VERSION = os.getenv("API_VERSION")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
-# Microsoft Azure Active Directory and SharePoint details
-TENANT_ID = "84a9843b-0b29-4729-ba8a-8155cf55c7ae"
-CLIENT_ID = "c240cb23-ba90-425a-b192-f43b2a8a091a"
-CLIENT_SECRET = "Vog8Q~gkiaBwqILMBuRx6s~Bf2WXwGIK5LdIea6K"
-AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
-SCOPE = ["https://graph.microsoft.com/.default"]
+TENANT_ID = os.getenv("TENANT_ID")
+CLIENT_ID = os.getenv("CLIENT_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+AUTHORITY = os.getenv("AUTHORITY")
+SCOPE = [os.getenv("SCOPE")]
 
-SITE_HOSTNAME = "sticsoftio.sharepoint.com"
-SITE_PATH = "/sites/GISOHub"
+SITE_HOSTNAME = os.getenv("SITE_HOSTNAME")
+SITE_PATH = os.getenv("SITE_PATH")
 
-CONNECTION_STRING = (
-    "DefaultEndpointsProtocol=https;AccountName=mlservicegenai5594635889;"
-    "AccountKey=pPEb7qOM9Ga46V15zVTuwEZKN/UVbGXMiBDQrq1oj7ls5WSXT2/7J2JBgNJvTyg2hxWg3ijGdU1C+AStGdEZ3A==;"
-    "EndpointSuffix=core.windows.net"
-)
-CONTAINER_NAME = "azuremlvish"
+CONNECTION_STRING = os.getenv("Azure_CONNECTION_STRING")
+CONTAINER_NAME = os.getenv("CONTAINER_NAME")
 
 # Initialize the OpenAI client for Azure
 class AzureOpenAI:
@@ -46,16 +43,15 @@ class AzureOpenAI:
             }
             data = {"input": [text]}
             
-            # Send request to OpenAI API
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()  # Will raise an HTTPError if the response is unsuccessful
 
-            # Extract the embedding from the response
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status() 
+
             embedding = response.json()['data'][0]['embedding']
             return embedding
         except requests.exceptions.RequestException as e:
             logging.error(f"Error generating embedding for text: {text} - {str(e)}")
-            return []  # Return an empty list if there's an error
+            return []  
 
 # MSAL Authentication for Microsoft Graph
 def get_access_token():
