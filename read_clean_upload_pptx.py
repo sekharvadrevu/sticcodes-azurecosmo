@@ -1,5 +1,4 @@
 from pptx import Presentation
-import os
 import json
 from dotenv import load_dotenv
 import re
@@ -107,7 +106,8 @@ def pptx_to_json(ACCESS_TOKEN,file_path):
             }
 
             json_pptx_data.append(slide_data)
-    
+
+        
     else:
         return "Unable to get file data"
 
