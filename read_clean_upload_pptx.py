@@ -9,25 +9,25 @@ load_dotenv()
 
 
 def clean_text(text):
-    # Then, replace unwanted whitespace while keeping the regular space intact
+    # replace unwanted whitespace while keeping the regular space intact
     formatted_text = re.sub(r'[^\S ]+', '', text)
     return formatted_text
 
 
-def clean_table_dimensions(table):
-    """
-    Returns a table with corrected dimensions.
+# def clean_table_dimensions(table):
+#     """
+#     Returns a table with corrected dimensions.
 
-    Tables in pptx sometimes do not follow correct dimensions for tables. For ex, the first row can have 2 cells
-    and the second row can have 3 cells. This causes an error in reading the tables and often pptx reads the same data 
-    twice to get dimension consistenncy. This function will add a "placeholder cell" to ensure that columns/cells dont 
-    get repeated
-    """
-    for row in table.rows:
-        print(len(row.cells))
+#     Tables in pptx sometimes do not follow correct dimensions for tables. For ex, the first row can have 2 cells
+#     and the second row can have 3 cells. This causes an error in reading the tables and often pptx reads the same data 
+#     twice to get dimension consistenncy. This function will add a "placeholder cell" to ensure that columns/cells dont 
+#     get repeated
+#     """
+#     for row in table.rows:
+#         print(len(row.cells))
 
-    for col in table.columns:
-        print(len(col.cells))
+#     for col in table.columns:
+#         print(len(col.cells))
 
 def extract_slide_tables(slide):
     """Return a list of table data dictionaries found in the slide.
