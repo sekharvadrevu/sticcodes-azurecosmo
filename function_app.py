@@ -288,7 +288,7 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
         version_category = body.get("VersionCategory")
         startdate = body.get("startdate")
         enddate = body.get("enddate")
-
+        ai_response=body.get("airesponse",False)
         if not version_category:
             return func.HttpResponse("Missing 'VersionCategory' parameter", status_code=404)
         
@@ -332,12 +332,6 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
 
         else:
             return func.HttpResponse("Missing 'ID' or 'startdate'/'enddate' parameters", status_code=404)
-
-        
-     
-    
-
-    
         log_message = {
             "query": query,
             "parameters": parameters
@@ -352,87 +346,132 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
         
 
         modified_fields = compare_documents(items)
-        if modified_fields:
+        if not modified_fields:
+            return func.HttpResponse(json.dumps({"message": f"No modified fields for ID: {doc_id}."}, indent=2),
+                                    mimetype="application/json", status_code=200)
+        if ai_response:
             gpt_response = generate_ai_response(modified_fields)
-            return func.HttpResponse(gpt_response, mimetype="application/json", status_code=200)
-        else:
-            return func.HttpResponse("No fields have been modified.", status_code=200)
+
+           
+            try:
+                json.loads(gpt_response)  # Ensure GPT response is valid JSON
+                return func.HttpResponse(gpt_response, mimetype="application/json", status_code=200)
+            except json.JSONDecodeError:
+                logging.warning("GPT response failed, returning default modified_fields.")
+
+        
+        return func.HttpResponse(json.dumps(modified_fields, indent=2, default=str), mimetype="application/json", status_code=200)
+        
+        
 
     except Exception as e:
         logging.error(f"Cosmos DB error: {str(e)}")
         return func.HttpResponse(f"Cosmos DB error: {str(e)}", status_code=500)
 
+# def compare_documents(items):
+#     """Compare old and new document versions (where newer values are first) and return the modified fields."""
+
+#     if len(items) < 2:
+#         return []
+
+#     sorted_docs = sorted(items, key=lambda doc: doc.get("fields", {}).get("Modified", doc.get("created")), reverse=True)
+
+#     new_doc = sorted_docs[0]  
+#     old_doc = sorted_docs[1] 
+#     modified_fields = []
+
+#     created = new_doc.get("created") or old_doc.get("created")
+#     modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
+
+#     old_modified_by = old_doc.get("modified_by", {})
+#     new_modified_by = new_doc.get("modified_by", {})
+#     modified_by = {
+#         "id": new_modified_by.get("id") or old_modified_by.get("id"),
+#         "display_name": new_modified_by.get("display_name") or old_modified_by.get("display_name"),
+#         "email": new_modified_by.get("email") or old_modified_by.get("email"),
+#     }
+
+#     for field in set(old_doc.keys()).union(new_doc.keys()):
+#         if field.startswith("_"):
+#             continue
+
+#         old_value = old_doc.get(field)  
+#         new_value = new_doc.get(field)  
+
+#         if isinstance(old_value, dict) and isinstance(new_value, dict):
+#             for sub_field in set(old_value.keys()).union(new_value.keys()):
+#                 sub_old_value = old_value.get(sub_field)
+#                 sub_new_value = new_value.get(sub_field)
+#                 if sub_old_value != sub_new_value:
+#                     modified_fields.append({
+#                         "Field": f"{field}.{sub_field}",
+#                         "Old_value": sub_old_value, 
+#                         "New_value": sub_new_value,  
+#                         "Created": created,
+#                         "Modified": modified,
+#                         "ModifiedBy": modified_by
+#                     })
+#         else:
+#             if old_value != new_value:
+#                 modified_fields.append({
+#                     "Field": field,
+#                     "Old_value": old_value,  
+#                     "New_value": new_value,  
+#                     "Created": created,
+#                     "Modified": modified,
+#                     "ModifiedBy": modified_by
+#                 })
+
+#     return modified_fields
+
 def compare_documents(items):
+    """Compare old and new document versions (where newer values are first) and return the modified subfields."""
+
     if len(items) < 2:
         return []
 
-    old_doc = items[0]
-    new_doc = items[1]
+  
+    sorted_docs = sorted(items, key=lambda doc: doc.get("fields", {}).get("Modified", doc.get("created")), reverse=True)
 
+    new_doc = sorted_docs[0] 
+    old_doc = sorted_docs[1]  
     modified_fields = []
 
-   
     created = new_doc.get("created") or old_doc.get("created")
-
-    
     modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
 
     old_modified_by = old_doc.get("modified_by", {})
     new_modified_by = new_doc.get("modified_by", {})
-
     modified_by = {
         "id": new_modified_by.get("id") or old_modified_by.get("id"),
         "display_name": new_modified_by.get("display_name") or old_modified_by.get("display_name"),
         "email": new_modified_by.get("email") or old_modified_by.get("email"),
     }
 
-    
+    # Focus on comparing subfields (nested dictionary values)
     for field in set(old_doc.keys()).union(new_doc.keys()):
-        if field.startswith("_"):  
+        if field.startswith("_"):
             continue
 
-        old_value = old_doc.get(field)
-        new_value = new_doc.get(field)
+        old_value = old_doc.get(field)  # Old value from the older document
+        new_value = new_doc.get(field)  # New value from the most recent document
 
+        # Check if both old and new values are dictionaries (subfields)
         if isinstance(old_value, dict) and isinstance(new_value, dict):
             for sub_field in set(old_value.keys()).union(new_value.keys()):
                 sub_old_value = old_value.get(sub_field)
                 sub_new_value = new_value.get(sub_field)
-
                 if sub_old_value != sub_new_value:
                     modified_fields.append({
                         "Field": f"{field}.{sub_field}",
-                        "Old_value": sub_old_value,
-                        "New_value": sub_new_value,
+                        "Old_value": sub_old_value,  # Old value
+                        "New_value": sub_new_value,  # New value
                         "Created": created,
                         "Modified": modified,
                         "ModifiedBy": modified_by
                     })
-        else:
-            if old_value != new_value:
-                modified_fields.append({
-                    "Field": field,
-                    "Old_value": old_value,
-                    "New_value": new_value,
-                    "Created": created,
-                    "Modified": modified,
-                    "ModifiedBy": modified_by
-                })
-
-    
-    if not modified_fields:
-        modified_fields.append({
-            "Field": "No changes detected",
-            "Old_value": None,
-            "New_value": None,
-            "Created": created,
-            "Modified": modified,
-            "ModifiedBy": modified_by
-        })
 
     return modified_fields
-
-
 
 
 def generate_ai_response(modified_fields):
@@ -467,7 +506,7 @@ def generate_ai_response(modified_fields):
                 "content": prompt
             }],
             model="gpt-4o",  
-            max_tokens=4000,
+            max_tokens=1000,
             temperature=0.7
         )
  
