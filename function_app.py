@@ -16,6 +16,7 @@ from httpTrigger_funcs_anurag import get_list_data
 from timertrigger_funcs_anurag import upload_sharepoint_lists
 from access_token import get_access_token
 from read_clean_upload_pptx import pptx_to_json
+from model_repsonse_anurag import get_ai_response
 load_dotenv()
 
 COSMOSDB_ENDPOINT = os.getenv("cosmoendpoint")
@@ -562,27 +563,19 @@ def get_sharepoint_list_data_as(req: func.HttpRequest) -> func.HttpResponse:
 
 
 @app.route(route="get_pptx_json_data",methods=["GET"],auth_level = func.AuthLevel.FUNCTION)
-def get_pptx_data(req:func.HttpRequest) -> func.HttpResponse:
+def get_pptx_data_as(req:func.HttpRequest) -> func.HttpResponse:
     file_path = req.params.get("file_path")
     if not file_path:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            file_path = req_body.get("file_path")
-
-    if not file_path:
-        return func.HttpResponse("Input file path as parameter or in request body",status_code= 400)
+        return func.HttpResponse("Please input file path as parameter",status_code= 400)
 
     try:
         # upload file path to function
         ACCESS_TOKEN = get_access_token()
         result = pptx_to_json(ACCESS_TOKEN,file_path)
         if result ==  "Unable to get file data":
-            return func.HttpResponse(result,status_code = 500)
+            return func.HttpResponse("Unable to get file data. Please try again",status_code = 500)
         elif result == "Invalid file path":
-            return func.HttpResponse(result,status_code = 404)
+            return func.HttpResponse("Invalid file path. Please ensure file path is correct",status_code = 404)
         else:
             return func.HttpResponse(result,status_code=200,mimetype = "application/json")
     except Exception as e : 
@@ -590,6 +583,37 @@ def get_pptx_data(req:func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse("Server error",status_code = 500)
 
 
+@app.route(route="chat_completion",methods=['POST'])
+def chat_completion_http_trigger_as(req: func.HttpRequest) -> func.HttpResponse:
+    """
+        Endpoint to get response from gpt-4o/o1 model.
+        Query must be passed in request body and model name must be passed as a parameter.
+    """
+    try:
+        req_body = req.get_json()
+        deployment_name = req.params.get('model_name')
+    except ValueError:
+        return func.HttpResponse(
+             "Please pass the model name as parameter and the query in the request body.",
+             status_code=400
+        )
+    else:
+        query = req_body.get('query')
+        
+        if(query and deployment_name):
+            logging.info(deployment_name)
+            logging.info(query)
+            response = get_ai_response(query,deployment_name)
+            if response == "Invalid model name":
+                return func.HttpResponse("Please enter a valid model name.",status_code=400) # model name must be available in endpoint
+            elif response == "Failed to get response from model":
+                return func.HttpResponse("Failed to get response. Please try again", status_code=500) # if chat completion does not give a response 
+            elif response == "Failed to connect to client":
+                return func.HttpResponse("Failed to connect to client.Please try again",status_code=500) # if api key or endpoint is invalid
+            else:
+                return func.HttpResponse(response,status_code=200,mimetype = "application/json")
+        else:
+            return func.HttpResponse("Query and model name must be present",status_code=400)
 
 @app.timer_trigger(schedule="0 0 * * * *", arg_name="myTimer", run_on_startup=False,
               use_monitor=False) 
@@ -601,4 +625,3 @@ def sharepoint_timer_trigger(myTimer: func.TimerRequest) -> None:
     container_name = os.getenv("AZure_container_name_anurag")
     ACCESS_TOKEN = get_access_token()
     upload_sharepoint_lists(ACCESS_TOKEN,container_name)
-
