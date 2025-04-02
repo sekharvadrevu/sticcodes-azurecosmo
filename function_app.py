@@ -527,24 +527,16 @@ def get_sharepoint_list_data_as(req: func.HttpRequest) -> func.HttpResponse:
 def get_pptx_data_as(req:func.HttpRequest) -> func.HttpResponse:
     file_path = req.params.get("file_path")
     if not file_path:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            file_path = req_body.get("file_path")
-
-    if not file_path:
-        return func.HttpResponse("Input file path as parameter or in request body",status_code= 400)
+        return func.HttpResponse("Please input file path as parameter",status_code= 400)
 
     try:
         # upload file path to function
         ACCESS_TOKEN = get_access_token()
         result = pptx_to_json(ACCESS_TOKEN,file_path)
         if result ==  "Unable to get file data":
-            return func.HttpResponse(result,status_code = 500)
+            return func.HttpResponse("Unable to get file data. Please try again",status_code = 500)
         elif result == "Invalid file path":
-            return func.HttpResponse(result,status_code = 404)
+            return func.HttpResponse("Invalid file path. Please ensure file path is correct",status_code = 404)
         else:
             return func.HttpResponse(result,status_code=200,mimetype = "application/json")
     except Exception as e : 
