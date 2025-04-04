@@ -13,12 +13,13 @@ from openai import AzureOpenAI
 from azure.core.exceptions import ResourceExistsError
 from azure.storage.blob import BlobServiceClient
 from azure.functions import FunctionApp, HttpRequest, HttpResponse
-
+from datetime import datetime
 from httpTrigger_funcs_anurag import get_list_data
 from timertrigger_funcs_anurag import upload_sharepoint_lists
 from access_token import get_access_token
 from read_clean_upload_pptx import pptx_to_json
 from model_repsonse_anurag import get_ai_response
+from collections import defaultdict
 load_dotenv()
 
 COSMOSDB_ENDPOINT = os.getenv("cosmoendpoint")
@@ -306,7 +307,7 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
                     startdate += 'Z'
                 if not enddate.endswith('Z'):
                     enddate += 'Z'
-                query += " AND (c.created >= @startdate AND c.created <= @enddate)"
+               
                 query += " AND (c.fields.Modified >= @startdate AND c.fields.Modified <= @enddate)"
                 parameters.extend([
                     {"name": "@startdate", "value": startdate},
@@ -325,7 +326,6 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
                 {"name": "@VersionCategory", "value": version_category}
             ]
 
-            query += " AND (c.created >= @startdate AND c.created <= @enddate)"
             query += " AND (c.fields.Modified >= @startdate AND c.fields.Modified <= @enddate)"
             parameters.extend([
                 {"name": "@startdate", "value": startdate},
@@ -426,55 +426,156 @@ def retrieve_cosmosdb_versions(req: func.HttpRequest) -> func.HttpResponse:
 
 #     return modified_fields
 
-def compare_documents(items):
-    """Compare old and new document versions (where newer values are first) and return the modified subfields."""
+# def compare_documents(items):
+#     """Compare old and new document versions (where newer values are first) and return the modified subfields."""
 
-    if len(items) < 2:
-        return []
+#     if len(items) < 2:
+#         return []
 
   
-    sorted_docs = sorted(items, key=lambda doc: doc.get("fields", {}).get("Modified", doc.get("created")), reverse=True)
+#     sorted_docs = sorted(items, key=lambda doc: doc.get("fields", {}).get("Modified", doc.get("created")), reverse=True)
 
-    new_doc = sorted_docs[0] 
-    old_doc = sorted_docs[1]  
+#     new_doc = sorted_docs[0] 
+#     old_doc = sorted_docs[1]  
+#     modified_fields = []
+
+#     created = new_doc.get("created") or old_doc.get("created")
+#     modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
+
+#     old_modified_by = old_doc.get("modified_by", {})
+#     new_modified_by = new_doc.get("modified_by", {})
+#     modified_by = {
+#         "id": new_modified_by.get("id") or old_modified_by.get("id"),
+#         "display_name": new_modified_by.get("display_name") or old_modified_by.get("display_name"),
+#         "email": new_modified_by.get("email") or old_modified_by.get("email"),
+#     }
+
+#     # Focus on comparing subfields (nested dictionary values)
+#     for field in set(old_doc.keys()).union(new_doc.keys()):
+#         if field.startswith("_"):
+#             continue
+
+#         old_value = old_doc.get(field)  # Old value from the older document
+#         new_value = new_doc.get(field)  # New value from the most recent document
+
+#         # Check if both old and new values are dictionaries (subfields)
+#         if isinstance(old_value, dict) and isinstance(new_value, dict):
+#             for sub_field in set(old_value.keys()).union(new_value.keys()):
+#                 sub_old_value = old_value.get(sub_field)
+#                 sub_new_value = new_value.get(sub_field)
+#                 if sub_old_value != sub_new_value:
+#                     modified_fields.append({
+#                         "Field": f"{field}.{sub_field}",
+#                         "Old_value": sub_old_value,  # Old value
+#                         "New_value": sub_new_value,  # New value
+#                         "Created": created,
+#                         "Modified": modified,
+#                         "ModifiedBy": modified_by
+#                     })
+
+#     return modified_fields
+def format_modified_date(modified):
+    """Helper function to format the 'Modified' date to the desired format."""
+    if modified:
+        try:
+            
+            modified_date = datetime.fromisoformat(modified.replace("Z", "+00:00"))  
+            return modified_date.strftime("%m/%d/%Y %I:%M %p")  
+        except ValueError:
+           
+            return modified
+    return "No date available"
+def filter_by_date(items, startdate, enddate):
+    """Filters the items based on startdate and enddate."""
+    filtered_items = []
+    start_date = datetime.strptime(startdate, "%Y-%m-%d")
+    end_date = datetime.strptime(enddate, "%Y-%m-%d")
+    
+    for item in items:
+        modified = item.get("fields", {}).get("Modified")
+        if modified:
+            modified = modified.rstrip('Z')  # Remove the trailing 'Z' if present
+            modified_date = datetime.strptime(modified, "%Y-%m-%dT%H:%M:%S")  # Assuming ISO 8601 format without 'Z'
+            if start_date <= modified_date <= end_date:
+                filtered_items.append(item)
+    
+    return filtered_items
+
+def compare_documents(items):
+    """Compare document versions grouped by ID, ModifiedDate, and ModifiedBy."""
+
+    if len(items) < 2:
+        return []  # No comparison possible
+
+    grouped_by_id = defaultdict(list)
+
+    # Group all documents by their ID
+    for doc in items:
+        doc_id = doc.get("fields", {}).get("ID")
+        if doc_id:
+            grouped_by_id[doc_id].append(doc)
+
+    grouped_by_date_user_and_id = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+
+    # Compare documents within each ID group
+    for doc_id, versions in grouped_by_id.items():
+        sorted_versions = sorted(versions, key=lambda d: d.get("fields", {}).get("Modified", d.get("created")), reverse=True)
+
+        for i in range(len(sorted_versions) - 1):
+            new_doc = sorted_versions[i]
+            old_doc = sorted_versions[i + 1]
+
+            modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
+            modified_by = new_doc.get("modified_by", {}).get("display_name", "No presence information")
+
+            changes = []
+
+            for field in set(old_doc.keys()).union(new_doc.keys()):
+                if field.startswith("_") or field == "ID":
+                    continue
+
+                old_value = old_doc.get(field)
+                new_value = new_doc.get(field)
+
+                if isinstance(old_value, dict) and isinstance(new_value, dict):
+                    for sub_field in set(old_value.keys()).union(new_value.keys()):
+                        sub_old = old_value.get(sub_field)
+                        sub_new = new_value.get(sub_field)
+
+                        if f"{field}.{sub_field}" in {"fields.Created", "fields.Modified"}:
+                            continue
+
+                        if sub_old != sub_new:
+                            changes.append({
+                                "Field": f"{field}.{sub_field}",
+                                "Old_value": sub_old,
+                                "New_value": sub_new
+                            })
+
+            if changes:
+                modified_date = format_modified_date(modified)
+                grouped_by_date_user_and_id[modified_date][modified_by][doc_id].append({
+                    "Changes": changes
+                })
+
+    # Prepare the final structured list
     modified_fields = []
-
-    created = new_doc.get("created") or old_doc.get("created")
-    modified = new_doc.get("fields", {}).get("Modified") or old_doc.get("fields", {}).get("Modified")
-
-    old_modified_by = old_doc.get("modified_by", {})
-    new_modified_by = new_doc.get("modified_by", {})
-    modified_by = {
-        "id": new_modified_by.get("id") or old_modified_by.get("id"),
-        "display_name": new_modified_by.get("display_name") or old_modified_by.get("display_name"),
-        "email": new_modified_by.get("email") or old_modified_by.get("email"),
-    }
-
-    # Focus on comparing subfields (nested dictionary values)
-    for field in set(old_doc.keys()).union(new_doc.keys()):
-        if field.startswith("_"):
-            continue
-
-        old_value = old_doc.get(field)  # Old value from the older document
-        new_value = new_doc.get(field)  # New value from the most recent document
-
-        # Check if both old and new values are dictionaries (subfields)
-        if isinstance(old_value, dict) and isinstance(new_value, dict):
-            for sub_field in set(old_value.keys()).union(new_value.keys()):
-                sub_old_value = old_value.get(sub_field)
-                sub_new_value = new_value.get(sub_field)
-                if sub_old_value != sub_new_value:
+    for modified_date, users in grouped_by_date_user_and_id.items():
+        for modified_by, ids in users.items():
+            for doc_id, doc_changes in ids.items():
+                filtered_changes = [
+                    change for change_data in doc_changes for change in change_data["Changes"]
+                    if change["Field"] not in {"fields.Created", "fields.Modified"}
+                ]
+                if filtered_changes:
                     modified_fields.append({
-                        "Field": f"{field}.{sub_field}",
-                        "Old_value": sub_old_value,  # Old value
-                        "New_value": sub_new_value,  # New value
-                        "Created": created,
-                        "Modified": modified,
-                        "ModifiedBy": modified_by
+                        "ModifiedDate": modified_date,
+                        "ModifiedBy": modified_by,
+                        "ID": doc_id,
+                        "Changes": filtered_changes
                     })
 
     return modified_fields
-
 
 def generate_ai_response(modified_fields):
  try:
